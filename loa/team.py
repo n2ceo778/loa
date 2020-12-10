@@ -8,7 +8,7 @@ import yaml
 from loa import utils
 from loa.unit import Unit
 from loa.logging import write_log
-
+from loa.exception import TeamConsistencyError
 
 class Team:
     def __init__(self,
@@ -50,6 +50,17 @@ class Team:
     def __setitem__(self, i, obj):
         self._units[i] = obj
         
+    def __eq__(self, other: Team):        
+        set_team1 = set(self.units)
+        set_team2 = set(self.units)
+        
+        return set_team1 == set_team2
+            
+
+    def __ne__(self, other: Team):        
+        return not self.__eq__(other)
+        
+        
     @property
     def name(self):
         return self._name
@@ -62,6 +73,10 @@ class Team:
     @property
     def units(self) -> List[Unit]:
         return self._units
+
+    @property
+    def num_positions(self):
+        return len(self._units)
 
     @property
     def num_units(self):
@@ -102,14 +117,27 @@ class TeamExaminer:
         self._check_types(team)
         self._check_positions(team)
         self._check_constraints(team, league_round)
-        self._check_arrange(team)
+        self._check_arrange(team, copy.deepcopy(team))
     
-    def check_play(self, team: Team, league_round: str = None):
-        self._check_positions(team)
+    def check_play(self,
+                   offense: Team,
+                   defense: Team,
+                   league_round: str = None):
+
+        self._check_types(offense)
+        self._check_types(defense)
+
+        self._check_positions(offense)        
+        self._check_positions(defense)
+
+        self._check_arrange(offense, defense)
         
     def _check_types(self, team: Team):
         utils.check_type("team", team, Team)        
         for unit in team:
+            if unit is None:
+                continue
+
             if not isinstance(unit, Unit):
                 err_msg = "An element of Team should be Unit type, "\
                           "not %s"%(type(unit))
@@ -161,7 +189,7 @@ class TeamExaminer:
             for unit in team:
                 if unit.evs > CONS_MAX_EVS:
                     err_msg = "[%s] The evs of each unit should be " \
-                              "less than or equal to %d, not %d!"% \
+                              "less than or equal to %.2f, not %.2f!"% \
                               (
                                   unit.name,
                                   CONS_MAX_EVS,
@@ -180,7 +208,7 @@ class TeamExaminer:
             if sum_hp_att_arm  > CONS_SUM_HP_ATT_ARM:
                 err_msg = "[%s] The summation of HP, ATT, and ARM " \
                           "of all units in a team should be less than " \
-                          "or equal to %d, not %d!"% \
+                          "or equal to %.2f, not %.2f!"% \
                           (
                               team.name,
                               CONS_SUM_HP_ATT_ARM,
@@ -192,7 +220,7 @@ class TeamExaminer:
             if sum_evs_div_arm  > CONS_SUM_EVS_DIV_ARM:
                 err_msg = "[%s] The summation of EVS/ARM of all units " \
                           "in a team should be less than or " \
-                          "equal to %d, not %d!"% \
+                          "equal to %.2f, not %.2f!"% \
                           (
                               team.name,
                               CONS_SUM_EVS_DIV_ARM,
@@ -207,10 +235,35 @@ class TeamExaminer:
             raise ValueError(err_msg)
                 
             
-    def _check_arrange(self, team: Team):            
-        team_cpy = copy.deepcopy(team)
-        team.arrange(team)
-        utils.check_team_consistency(team,
-                                     team_cpy,
-                                     "arrangement")
+    def _check_arrange(self,
+                       offense: Team,
+                       defense: Team):
         
+        offense_cpy = copy.deepcopy(offense)
+        defense_cpy = copy.deepcopy(defense)
+        offense_cpy.arrange(defense_cpy)
+        self._check_consistency(offense,
+                                offense_cpy,
+                                "arrangement")
+    
+    
+    def _check_consistency(self,
+                           origin: Team,
+                           copied: Team,
+                           situation: str):
+          
+        if len(origin) != len(copied):
+            err_msg = "The size of the team %s " \
+                      "has been changed in %s!"%(origin.name, situation)
+            write_log(err_msg)
+            raise TeamConsistencyError(origin, err_msg)
+            
+    
+        if origin != copied:
+            err_msg = "The units in the team %s " \
+                      "has been changed in %s!"%(origin.name, situation)
+            write_log(err_msg)
+            raise TeamConsistencyError(origin, err_msg) 
+                
+        
+    
